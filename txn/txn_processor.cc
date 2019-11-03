@@ -303,7 +303,7 @@ void TxnProcessor::RunMVCCScheduler() {
       // Run the transaction, txn
       tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
                     this,
-                    &TxnProcessor::RunMVCCScheduler,
+                    &TxnProcessor::MVCCExecuteTxn,
                     txn)
                   );
     }
