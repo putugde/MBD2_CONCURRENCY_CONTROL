@@ -10,7 +10,7 @@
 #include "txn/lock_manager.h"
 
 // Thread & queue counts for StaticThreadPool initialization.
-#define THREAD_COUNT 8
+#define THREAD_COUNT 4
 
 TxnProcessor::TxnProcessor(CCMode mode)
     : mode_(mode), tp_(THREAD_COUNT), next_unique_id_(1) {
@@ -36,10 +36,10 @@ TxnProcessor::TxnProcessor(CCMode mode)
   CPU_SET(0, &cpuset);
   CPU_SET(1, &cpuset);       
   CPU_SET(2, &cpuset);
-  CPU_SET(3, &cpuset);
-  CPU_SET(4, &cpuset);
-  CPU_SET(5, &cpuset);
-  CPU_SET(6, &cpuset);  
+  // CPU_SET(3, &cpuset);
+  // CPU_SET(4, &cpuset);
+  // CPU_SET(5, &cpuset);
+  // CPU_SET(6, &cpuset);  
   pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
   pthread_t scheduler_;
   pthread_create(&scheduler_, &attr, StartScheduler, reinterpret_cast<void*>(this));
@@ -289,12 +289,113 @@ void TxnProcessor::RunMVCCScheduler() {
   // CPSC 438/538:
   //
   // Implement this method!
-  
-  // Hint:Pop a txn from txn_requests_, and pass it to a thread to execute. 
-  // Note that you may need to create another execute method, like TxnProcessor::MVCCExecuteTxn. 
+
+  // Hint:Pop a txn from txn_requests_, and pass it to a thread to execute.
+  // Note that you may need to create another execute method, like TxnProcessor::MVCCExecuteTxn.
   //
   // [For now, run serial scheduler in order to make it through the test
   // suite]
-  RunSerialScheduler();
+
+  while (tp_.Active()) {
+    Txn *txn;
+    // Get the next new transaction request (if one is pending) and pass it to an execution thread.
+    if (txn_requests_.Pop(&txn)) {
+      // Run the transaction, txn
+      tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
+                    this,
+                    &TxnProcessor::RunMVCCScheduler,
+                    txn)
+                  );
+    }
+  }
+}
+
+// MVCC Execution Thread:
+
+// Read all necessary data for this transaction from storage (Note that you should lock the key before each read)
+// Execute the transaction logic (i.e. call Run() on the transaction)
+void TxnProcessor::MVCCExecuteTxn(Txn* txn) {
+  set<Key>::iterator it;
+  Value val;
+
+  // Read from readset and move into reads performed by the transaction
+  for (it = txn->readset_.begin(); it != txn->readset_.end(); it++) {
+		storage_->Lock(*it);
+
+    // iff record exist in the storage
+    if (storage_->Read(*it, &val, txn->unique_id_)) {
+      txn->reads_[*it] = val;
+    }
+
+    storage_->Unlock(*it);
+  }
+
+  // Read from writeset and move into reads performed by the transaction
+  for (it = txn->writeset_.begin(); it != txn->writeset_.end(); it++) {
+    storage_->Lock(*it);
+
+    // iff record exist in the storage
+    if (storage_->Read(*it, &val, txn->unique_id_)) {
+      txn->reads_[*it] = val;
+    }
+    
+    storage_->Unlock(*it);
+  }
+
+  // Run the transaction
+  txn->Run();
+  
+  // Acquire all locks for keys in the write_set_
+  MVCCLockWriteKeys(txn);
+
+  // Check if the keys pass the test
+  if (MVCCCheckWrites(txn)) {
+    // Apply all writes
+    ApplyWrites(txn);
+
+    // Unlock all keys acquired
+    MVCCUnlockWriteKeys(txn);
+
+    // Mark as done and return to client
+    txn->status_ = COMMITTED;
+    txn_results_.Push(txn);
+
+  } else {
+    MVCCUnlockWriteKeys(txn);
+    // cleanup txn:
+    txn->reads_.empty();
+    txn->writes_.empty();
+    txn->status_ = INCOMPLETE;
+
+    // Restart txn:
+    mutex_.Lock();
+    txn->unique_id_ = next_unique_id_;
+    next_unique_id_++;
+    txn_requests_.Push(txn);
+    mutex_.Unlock(); 
+  }
+
+}
+
+bool TxnProcessor::MVCCCheckWrites(Txn* txn) {
+  bool isWrite = true;
+  set<Key>::iterator it = txn->writeset_.begin();
+  while (isWrite && it != txn->writeset_.end()) {
+    isWrite = storage_->CheckWrite(*it, txn->unique_id_);
+    it++;
+  }
+  return isWrite;
+}
+
+void TxnProcessor::MVCCLockWriteKeys(Txn* txn) {
+  for (set<Key>::iterator it = txn->writeset_.begin(); it != txn->writeset_.end(); it++) {
+        storage_->Lock(*it);
+  }
+}
+
+void TxnProcessor::MVCCUnlockWriteKeys(Txn* txn) {
+  for (set<Key>::iterator it = txn->writeset_.begin(); it != txn->writeset_.end(); it++) {
+        storage_->Unlock(*it);
+  }
 }
 
