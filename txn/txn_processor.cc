@@ -399,39 +399,43 @@ void TxnProcessor::MVCCExecuteTxn(Txn* txn) {
 
   // Run the transaction
   txn->Run();
-  
-  // Acquire all locks for keys in the write_set_
-  MVCCLockWriteKeys(txn);
 
-  // Check if the keys pass the test
-  if (MVCCCheckWrites(txn)) {
-
-    // Apply all writes
-    ApplyWrites(txn);
-
-    // Unlock all keys acquired
-    MVCCUnlockWriteKeys(txn);
-
-    // Mark as done and return to client
-    txn->status_ = COMMITTED;
-    txn_results_.Push(txn);
-
+  if (txn->Status() == COMPLETED_A) {
+    txn->status_ = ABORTED;
   } else {
-    MVCCUnlockWriteKeys(txn);
+  
+    // Acquire all locks for keys in the write_set_
+    MVCCLockWriteKeys(txn);
 
-    // cleanup txn:
-    txn->reads_.empty();
-    txn->writes_.empty();
-    txn->status_ = INCOMPLETE;
+    // Check if the keys pass the test
+    if (MVCCCheckWrites(txn)) {
 
-    // Restart txn:
-    mutex_.Lock();
-    txn->unique_id_ = next_unique_id_;
-    next_unique_id_++;
-    txn_requests_.Push(txn);
-    mutex_.Unlock(); 
+      // Apply all writes
+      ApplyWrites(txn);
+
+      // Unlock all keys acquired
+      MVCCUnlockWriteKeys(txn);
+
+      // Mark as done and return to client
+      txn->status_ = COMMITTED;
+      txn_results_.Push(txn);
+
+    } else {
+      MVCCUnlockWriteKeys(txn);
+
+      // cleanup txn:
+      txn->reads_.empty();
+      txn->writes_.empty();
+      txn->status_ = INCOMPLETE;
+
+      // Restart txn:
+      mutex_.Lock();
+      txn->unique_id_ = next_unique_id_;
+      next_unique_id_++;
+      txn_requests_.Push(txn);
+      mutex_.Unlock(); 
+    }
   }
-
 }
 
 void TxnProcessor::MVCCLockWriteKeys(Txn* txn) {
