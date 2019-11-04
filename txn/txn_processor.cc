@@ -384,17 +384,21 @@ void TxnProcessor::MVCCExecuteTxn(Txn* txn) {
   // Read from readset and move into reads performed by the transaction
   for (it = txn->readset_.begin(); it != txn->readset_.end(); it++) {
     // if record exist in the storage
+    storage_->Lock(*it);
     if (storage_->Read(*it, &val, txn->unique_id_)) {
       txn->reads_[*it] = val;
     }
+    storage_->Unlock(*it);
   }
 
   // Read from writeset and move into reads performed by the transaction
   for (it = txn->writeset_.begin(); it != txn->writeset_.end(); it++) {
+    storage_->Lock(*it);
     // if record exist in the storage
     if (storage_->Read(*it, &val, txn->unique_id_)) {
       txn->reads_[*it] = val;
     }
+    storage_->Unlock(*it);
   }
 
   // Run the transaction
