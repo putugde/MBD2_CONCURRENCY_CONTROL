@@ -13,6 +13,9 @@ LockManager::~LockManager() {
     delete itr->second;
     itr++;
   }
+  // for (auto it = lock_table_.begin(); it != lock_table_.end(); it++) {
+  //   delete it->second;
+  // }
 }
 
 
@@ -35,6 +38,24 @@ bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
   return empty;
 }
 
+// bool LockManagerA::WriteLock(Txn* txn, const Key& key) {
+//   bool empty = true;
+//   LockRequest rq(EXCLUSIVE, txn);
+//   deque<LockRequest> *dq = lock_table_[key];
+//   if (!dq) {
+//     dq = new deque<LockRequest>();
+//     lock_table_[key] = dq;
+//   }
+
+//   empty = dq->empty();
+//   dq->push_back(rq);
+
+//   if (!empty) { // Add to wait list, doesn't own lock.
+//     txn_waits_[txn]++;
+//   }
+//   return empty;
+// }
+
 bool LockManagerA::ReadLock(Txn* txn, const Key& key) {
   // Since Part 1A implements ONLY exclusive locks, calls to ReadLock can
   // simply use the same logic as 'WriteLock'.
@@ -47,14 +68,14 @@ void LockManagerA::Release(Txn* txn, const Key& key) {
     lockReqDeque = new deque<LockRequest>();
     lock_table_[key] = lockReqDeque;
   }
-  bool resourceFree = false;
+  bool resourceFree = true;
   auto itr = lockReqDeque->begin();
   while (itr < lockReqDeque->end()){
     if (itr->txn_ == txn) {
         lockReqDeque->erase(itr);
-        resourceFree = true;
         break;
     }
+    resourceFree = false;
     itr++;
   }
 
@@ -83,7 +104,6 @@ LockMode LockManagerA::Status(const Key& key, vector<Txn*>* owners) {
     return EXCLUSIVE;
   }
 }
-
 
 
 LockManagerB::LockManagerB(deque<Txn*>* ready_txns) {
@@ -116,4 +136,3 @@ LockMode LockManagerB::Status(const Key& key, vector<Txn*>* owners) {
   // Implement this method!
   return UNLOCKED;
 }
-
