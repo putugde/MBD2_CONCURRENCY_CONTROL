@@ -11,13 +11,13 @@
 // Returns a human-readable string naming of the providing mode.
 string ModeToString(CCMode mode) {
   switch (mode) {
-    case SERIAL:                 return " Serial   ";
-    case LOCKING_EXCLUSIVE_ONLY: return " Locking A";
-    case LOCKING:                return " Locking B";
-    case OCC:                    return " OCC      ";
-    case P_OCC:                  return " OCC-P    ";
-    case MVCC:                   return " MVCC     ";
-    default:                     return "INVALID MODE";
+    case SERIAL:                 return " Serial                             ";
+    case LOCKING_EXCLUSIVE_ONLY: return " Locking A                          ";
+    case LOCKING:                return " Locking B (Tidak diimplementasikan)";
+    case OCC:                    return " OCC                                ";
+    case P_OCC:                  return " OCC-P (Tidak diimplementasikan)    ";
+    case MVCC:                   return " MVCC                               ";
+    default:                     return "INVALID MODE                        ";
   }
 }
 
@@ -135,8 +135,8 @@ void Benchmark(const vector<LoadGen*>& lg) {
 }
 
 int main(int argc, char** argv) {
-  cout << "\t\t\t    Average Transaction Duration" << endl;
-  cout << "\t\t0.1ms\t\t1ms\t\t10ms";
+  cout << "\t\t\t                             Average Transaction Duration" << endl;
+  cout << "\t\t                         0.1ms\t\t1ms\t\t10ms";
   cout << endl;
 
   cpu_set_t cs;
