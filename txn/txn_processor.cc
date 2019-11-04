@@ -268,7 +268,74 @@ void TxnProcessor::RunOCCScheduler() {
   // [For now, run serial scheduler in order to make it through the test
   // suite]
 
-  RunSerialScheduler();
+   //Memproses tiap request transaksi selagi thread pool masih aktif
+  while (tp_.Active()) {
+
+    //insialisasi sebuah transaksi untuk di request dalam bentuk transactionInstance
+    Txn *transactionInstance;
+    //ambil semua transaksi dari koleksi transaction requests
+    if (txn_requests_.Pop(&transactionInstance)) {
+
+      // Mulai transaksi yang terkait. Transaksi tsb dimasukkan ke koleksi completed transactions
+      tp_.RunTask(new Method<TxnProcessor, void, Txn*>(
+                  this,
+                  &TxnProcessor::ExecuteTxn,
+                  transactionInstance));
+    }
+
+    //Melakukan validasi terhadap transaksi yang sudah diproses
+    int ABORT_VOTE = 2;
+    while (completed_txns_.Pop(&transactionInstance)) {
+
+      //Cek apakah transaksi sudah dieksekusi namun dengan abort vote
+      if (transactionInstance->Status() == ABORT_VOTE) {
+        //jika ya, maka transaksi akan di abort
+        transactionInstance->status_ = ABORTED;
+      } 
+      //Cek apakah transaksi mempunyai masalah dalam versioning
+      else{
+        bool isValidVersioning;
+        for (auto&& key : transactionInstance->readset_) {
+          if (transactionInstance->occ_start_time_ < storage_->Timestamp(key)){
+            isValidVersioning = false;
+            break;
+          }
+        }
+
+        for (auto&& key : transactionInstance->writeset_) {
+          if (transactionInstance->occ_start_time_ < storage_->Timestamp(key)){
+            isValidVersioning = false;
+            break;
+          }
+        }
+
+        isValidVersioning = true;
+
+        if (! isValidVersioning){
+        
+          //Jika terjadi pelanggaran constraint dalam version, maka akan di rollback
+
+          //Mengubah status transaksi
+          transactionInstance->reads_.empty();
+          transactionInstance->writes_.empty();
+          transactionInstance->status_ = INCOMPLETE;
+
+          //transaksi di lock sementara dan dikembalikan kedalam koleksi transaction request untuk diakses pada waktu berikutnya
+          mutex_.Lock();
+          transactionInstance->unique_id_ = next_unique_id_;
+          next_unique_id_++;
+          txn_requests_.Push(transactionInstance);
+          mutex_.Unlock();
+        } 
+        else {
+          // Jika transaksi tidak bermasalah, maka lakukan commit
+          ApplyWrites(transactionInstance);
+          transactionInstance->status_ = COMMITTED;
+          txn_results_.Push(transactionInstance);
+        }
+      }
+    }
+  }
 }
 
 void TxnProcessor::RunOCCParallelScheduler() {
